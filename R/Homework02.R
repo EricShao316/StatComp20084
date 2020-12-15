@@ -1,0 +1,44 @@
+#' @title inverse transform method
+#' @name invtransmethod
+#' @description 3.3 Use the inverse transform method to simulate a random sample from the Pareto(2,2) distribution, then draw the histogram for comparsion.
+#' @description 3.9 Generate random variates using the method provided by Devroye and Gyorfi.
+#' @useDynLib StatComp20084
+#' @examples
+#' \dontrun{
+#' n1 = 1000
+#' a = 2
+#' b = 2
+#' u1 = runif(n1)
+#' x1 = b/sqrt(u1)
+#' hist(x1, prob =TRUE, main = expression(f(x)==a*b^a/x^(a+1)), 
+#' breaks = 30, col = "pink", xlim = c(0, 60), ylim = c(0, 0.4))
+#' y1 = seq(b, 60, 0.05)
+#' lines(y1, a*b^a/(y1^(a+1)), lty = 4, lwd = 1.5)
+#' }
+#' \dontrun{
+#' n2 = 1e5
+#' x2 = numeric(0)
+#' for(i in 1:n2){
+#'  U = runif(3, min = -1, max = 1)
+#'  aU = abs(U)
+#'  if((aU[3] >= aU[2]) && (aU[3] >= aU[1]))
+#'    x2[i] = U[2]
+#'  else x2[i] = U[3]
+#' }
+#' hist(x2, prob = TRUE, main = expression(fe(x)==0.75(1-x^2)), 
+#' col = "pink", ylim = c(0, 1))
+#' y1 = seq(-1, 1, 0.001)
+#' lines(y1, 0.75*(1-y1^2), lwd = 2)
+#' }
+#' \dontrun{
+#' n3 = 1000
+#' r = 4
+#' beta = 2
+#' lambda = rgamma(n3, r, beta)
+#' x3 = rexp(lambda)
+#' hist(x3, prob = TRUE, main = "Comparison", 
+#' breaks = 20, col = "pink")
+#' y3 = seq(0, 10, 0.01)
+#' lines(y3, r*beta^r/(beta+y3)^(r+1), lwd = 1.5)
+#' }
+NULL

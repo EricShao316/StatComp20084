@@ -1,0 +1,17 @@
+Package: StatComp20084
+Type: Package
+Title: Statitical Computing course project of Shao Jingyu (SA20017032).  
+Version: 1.0
+Date: 2020-12-10
+Author: Shao Jingyu
+Maintainer: Shao Jingyu <2398799117@qq.com>
+Description: OFGD and CSFGD algorithms in Assortment problem (calculation and simulation). All the homeworks in the course Statistical Computing.
+License: GPL (>= 2)
+Imports: Rcpp (>= 0.12.16), microbenchmark, knitr, rmarkdown, boot, RANN
+LinkingTo: Rcpp
+VignetteBuilder: knitr
+Suggests: knitr, rmarkdown
+Encoding: UTF-8
+RoxygenNote: 7.1.1
+
+

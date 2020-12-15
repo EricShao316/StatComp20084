@@ -1,0 +1,581 @@
+---
+title: "Assortment_intro"
+author: "Shao Jingyu SA20017032"
+date: "2020/12/15"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Assortment_intro}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+## Notation
+
+Data recorded: $t=1,...,T$
+
+Types of customers: $i_t\in\{1,...,p\}$
+
+Items: $j_t\in\{1,...,q\}$
+
+Assortment in $t$: $S_t\subset\{1,...,q\}$
+
+Utility from type $i$ to item $j$: $V_{ij}$
+
+Features of customers: $x=(x_1,...,x_p)^T$
+
+probability of type $i$ comes in $t$: $\mu_i^{*}$
+
+Data matrix: $X=(\bf{x_1},...,\bf{x_p})=(\tilde{x}_1,...,\tilde{x}_T)^T$
+
+True $\Theta$ matrix: $\Theta=(\bf{\theta_1^{*}},...,\bf{\theta_q^{*}})=(\tilde{\theta}_1^{*},...,\tilde{\theta}_p^{*})^T$
+
+The past features and assortment:$\tau=\{(x_1,S_1),...,(x_T,S_T)\}$
+
+## Model
+
+We first define the loss function:
+\begin{equation}
+L(\tau;\Theta)=\frac{1}{T}\sum_{i=1}^{T}log((1+\sum_{j\in S_t}e^{\tilde{x}_i^T\theta_j})(I_{(j_t=0)}+I_{(j_t\neq 0)}e^{\tilde{x}_i^T\theta_{j_t}})^{-1})
+\end{equation}
+Then we derive then objective function:
+\begin{equation}
+Q(\tau;\Theta)=L(\tau;\Theta)+\lambda||\Theta||_{*}
+\end{equation}
+Low rank assumption $r(\Theta)<<min\{n,p\}$
+
+## Algorithm
+
+In this part, we'll give three kinds of methods for solving the Model.
+
+_Ordinary Factored Gradient Descent (OFGD)_
+
+Input: Customers Data $X$; item-type-assortment data $\{(i_t,j_t,S_t)\}_{t=1}^T$; dimensions of $\Theta$: $p,q$; rank $\tilde{r}$; regularizing coefficient $\lambda$; and tolerance $\tau$. $U\leftarrow U^0$, $V\leftarrow V^0$, $f^{'}\leftarrow \infty$.
+
+Output: $\hat{\Theta}=UV^T$
+
+Code:
+```{r eval=TRUE}
+FGD.Ordinary = function(X = 0, # data matrix
+                        Data.it, # data it
+                        Data.jt, # data jt
+                        Data.St, # data St
+                        r, # rank of Theta
+                        tau, # Tolerance
+                        U, # initial U
+                        V # initial V
+){
+  k = 0 # Times of interation
+  K = 50
+  f = 200
+  f.d = 300
+  N = length(Data.it)
+  if (is.null(nrow(U))) m = length(U)
+  else m = nrow(U)
+  if (is.null(nrow(V))) n = length(V)
+  else n = nrow(V)
+  it = Data.it
+  jt = Data.jt
+  eit = matrix(0, m, 1)
+  ejt = matrix(0, n, 1)
+  U.d = matrix(0, m, r)
+  V.d = matrix(0, n, r)
+  # Regularizing Coefficient
+  lambda = sqrt( 10*(m+n)*log(m+n)/(m*n*N) ) / 8 # K = 10
+  
+  while ((abs(f - f.d) / f.d > tau) & k<30) {
+    eta = 1
+    f = f.d
+    delta.U = - lambda * U
+    delta.V = - lambda * V
+    
+    for (t in 1:N) {
+      Q = 0
+      weV = matrix(0, n, r)
+      weU = matrix(0, m, r)
+      J = numeric(0)
+      omg = 0
+      Wu = matrix(0, m, r)
+      Wv = matrix(0, n, r)
+      
+      eit = matrix(0, m, 1)
+      ejt = matrix(0, n, 1)
+      eit[it[t],1] = 1
+      if (jt[t] != 0) ejt[jt[t],1] = 1
+      J = Data.St[t,which(Data.St[t,]!=0)]
+      
+      for (j in 1:J) {
+        ejt.j = matrix(0, n, 1)
+        ejt.j[j,1] = 1
+        omgu = matrix(exp(- t(U[it[t],]) %*% V[j,] ), m, r)
+        omgv = matrix(exp(- t(U[it[t],]) %*% V[j,] ), n, r)
+        Wu = Wu + omgu
+        Wv = Wv + omgv
+        # Sum parts
+        weU = weU +  omgu*(eit %*% t(V[j,])) #Drop omg
+        weV = weV +  omgv*(ejt.j %*% t(U[it[t],])) #Drop omg
+      }
+      
+      if (jt[t] != 0) delta.U = delta.U - (eit %*% t(V[jt[t],]) - weU / Wu) / N #Drop W
+      else delta.U = delta.U - (eit %*% matrix(0, 1, r) - weU / Wu) / N #Drop W
+      delta.V = delta.V - (ejt %*% t(U[it[t],]) - weV / Wv) / N #Drop W
+    }
+    kk = 0
+    
+    while ((f.d >= f) & (kk < 1e4)) {
+      U.d = matrix(0, m, r)
+      V.d = matrix(0, n, r)
+      U.d = U + eta * delta.U
+      V.d = V + eta * delta.V
+      
+      if (X == 0) LUV.d = loss.multilogit(U.d, V.d, N, it, jt, Data.St)
+      else LUV.d = loss.data(X, U.d, V.d, N, it, jt, Data.St, lambda)
+      f.d = LUV.d + .5*lambda*sum(U.d^2) + .5*lambda*sum(V.d^2)
+      
+      # eta.dec = 0.8
+      eta = 0.8 * eta
+      kk = kk+1
+    }
+    U = U.d
+    V = V.d
+    k = k+1
+  }
+  
+  list(Ma = U %*% t(V), f.d = f.d, LUV.d = LUV.d, k = k)
+}
+```
+
+_Sparse Primal-dual active set (SPDAS)_
+
+Input: Customers Data $X$; item-type-assortment data $\{(i_t,j_t,S_t)\}_{t=1}^N$; dimensions of $\Theta$: $p,q$; rank $\tilde{r}$; regularizing coefficient $\lambda$; and tolerance $\tau$. $U\leftarrow U^{*}$, $V\leftarrow V^{*}$, $f^{'}\leftarrow \infty$, prior estimate $\Theta^{*}$, column index $j^{*}$, column active set $A_{j^{*}}$
+
+Output:  $\{\hat{\Theta}_{j^{*}},\Delta_{j^{*}}\}$
+
+Code: 
+```{r eval=TRUE}
+FGD.PDAS = function(p, # nrow of Theta
+                    X, # Data matrix
+                    jt, # item in t
+                    Data.St, # Assortment in t
+                    Theta.j = 1, # colwise PDAS
+                    U.Ori, # Initail U
+                    V.Ori, # Initail V
+                    Theta.1st, # using to calculate g,h,delta
+                    ActiveSet # colwise active set
+                    ){
+  N = length(jt)
+  A1 = rep(1,p)
+  A = rep(0,p)
+  #ActiveSet = sample(1:p, cardi)
+  A[ActiveSet] = A1[ActiveSet] # {1,3,4,6} p=10
+  I1 = A1 - A
+  ISet = which(I1!=0) 
+  # adapt it jt St
+  r = ncol(U.Ori)
+  U = U.Ori[ActiveSet,] # let col=1
+  V = V.Ori[Theta.j,]
+  k = 0 # Times of interation
+  tau = 1e-5
+  f = 200
+  f.d = 300
+  m = length(ActiveSet)
+  n = length(V)
+  #it = sample(1:min(N,length(ActiveSet)), N, replace = TRUE)
+  it = sample(1:m, N, replace = TRUE)
+  jt = sample(0:1, N, replace = TRUE)
+  #Data.St = ijS.generate(N, m, n, X[,ActiveSet], U %*% V, K = 1) $ St
+  Data.St = matrix(1, N, 1)
+  #for (mm in 1:Mmax) {
+    # Unit Rank FGD procedure
+    eit = matrix(0, m, 1)
+    ejt = matrix(0, 1, 1)
+    U.d = matrix(0, m, r)
+    V.d = matrix(0, n, 1)
+    # Regularizing Coefficient
+    lambda = sqrt( 10*(m+n)*log(m+n)/(m*n*N) ) / 8 # K = 10
+    while ((abs(f - f.d) / f.d > tau) & k<100) {
+      k = k + 1
+      eta = 1
+      f = f.d
+      delta.U = - lambda * U
+      delta.V = - lambda * V
+      
+      for (t in 1:N) {
+        weV = matrix(0, n, 1)
+        weU = matrix(0, m, r)
+        J = numeric(0)
+        Wu = matrix(0, m, r)
+        Wv = matrix(0, n, 1)
+        
+        eit = matrix(0, m, 1)
+        ejt = matrix(0, 1, 1)
+        eit[it[t],1] = 1
+        if (jt[t] != 0) ejt[jt[t],1] = 1
+        #J = Data.St[t,which(Data.St[t,]!=0)]
+        J = 1
+        
+        ejt.j = 1
+        #ejt.j[J,1] = 1
+        omgu = matrix(exp(- U[it[t],] %*% V ), m, r)
+        omgv = matrix(exp(- U[it[t],] %*% V ), n, 1)
+        Wu = Wu + omgu
+        Wv = Wv + omgv
+        # Sum parts
+        weU = weU +  omgu * (eit %*% t(V)) #Drop omg
+        weV = weV +  omgv * (ejt.j * U[it[t],]) #Drop omg
+        
+        if (jt[t] != 0) delta.U = delta.U - (eit %*% t(V) - weU / Wu) / N #Drop W
+        else delta.U = delta.U - (matrix(0,nrow(weU),ncol(weU)) - weU / Wu) / N #Drop W
+        delta.V = delta.V - (ejt * U[it[t],] - weV / Wv) / N #Drop W
+      #}
+      kk = 0
+      
+      while ((f.d >= f) & (kk < 1e4)) {
+        U.d = matrix(0, m, r)
+        V.d = matrix(0, n, 1)
+        U.d = U + eta * delta.U
+        V.d = V + eta * delta.V
+        
+        LUV.d = loss.data(X[,ActiveSet], U.d, t(V.d), N, it, jt, Data.St, lambda)
+        f.d = LUV.d + .5*lambda*sum(U.d^2) + .5*lambda*sum(V.d^2)
+        
+        # eta.dec = 0.8
+        eta = 0.8 * eta
+        kk = kk+1
+      }
+      U = U.d
+      V = V.d
+      k = k+1
+    }
+    Thetaj.estimate = rep(0,p)
+    Thetaj.estimate[ActiveSet] = U %*% V
+    
+    # Now we get the estimate of a col of Theta
+    # Then use g,h,delta
+    g.colwise = g.calcu(X, Theta = Theta.1st, Theta.j, it, jt, Data.St)
+    h.colwise = h.calcu(X, Theta = Theta.1st, Theta.j, it, jt, Data.St)
+    delta.colwise = delta.calcu(g = g.colwise, h = h.colwise, Theta = Theta.1st, Theta.j)
+  }
+  #return(Thetaj.estimate)
+  list(Thetaj.estimate = Thetaj.estimate,
+       delta.colwise = delta.colwise)
+}
+```
+
+_Competitive Selection Factored Gradient Descent (CSFGD)_
+
+Input: Customers Data $X$; item-type-assortment data $\{(i_t,j_t,S_t)\}_{t=1}^N$; dimensions of $\Theta$: $p,q$; rank $\tilde{r}$; regularizing coefficient $\lambda$; and tolerance $\tau$. $U\leftarrow U^0$, $V\leftarrow V^0$.
+
+Output: $\{A^{(m)},\hat{\Theta}^{(m)},\Delta^{(m)}\}$
+
+Code:
+```{r eval=TRUE}
+FGD.modBeSS = function(X,
+                    Data.it, # data it
+                    Data.jt, # data jt
+                    Data.St, # data St
+                    r, # rank of Theta
+                    U, # initial U
+                    V, # initial V
+                    Actint.m =10, # m max in BeSS
+                    cardi = 5
+){
+  t1 = proc.time()
+  # Define
+  k = 0 # Times of interation
+  kk = 0
+  N = nrow(Data.it)
+  m = nrow(U)
+  n = nrow(V)
+  it = Data.it
+  jt = Data.jt
+  eit = matrix(0, m, 1)
+  ejt = matrix(0, n, 1)
+  U.d = matrix(0, m, r)
+  V.d = matrix(0, n, r)
+  cardi = floor(m / 2) # cardinality of active set
+  Delta.colwise = matrix(0, m ,n)
+  
+  ## Theta initailization
+  #Theta.estimate = FGD.Ordinary(X,it,jt,Data.St,r,tau=1e-10,U,V)$Ma
+  Theta.estimate = U %*% t(V)
+  
+  ## Active set initailization, K = 10
+  A = matrix(0, m, n)
+  for (i in 1:n) {
+    idx = sample(1:m, sample(2:5))
+    A[1:length(idx),i] = idx
+  }
+  
+  
+  ## Colwise Update
+  for (i in 1:n) {
+    pdas = FGD.PDAS(p = m, X = X, jt = Data.jt, 
+                    Data.St = Data.St, Theta.j = i, 
+                    U.Ori = U, V.Ori = V, Theta.1st = Theta.estimate,
+                    ActiveSet = A[which(A[,i]!=0),i])
+    Theta.estimate[,i] = pdas $ Thetaj.estimate
+    Delta.colwise[,i] = pdas $ delta.colwise
+  }
+  
+  ## Compete Update
+  mm = 1
+  while (mm <= Actint.m) {
+    # Compete on delta to choose one column
+    idx = as.vector(vapply(as.data.frame(Delta.colwise),max,numeric(1)))
+    idx.max = which(idx==max(idx))
+    # Calcu the active set on the choosen col
+    kstar = order(Delta.colwise[,idx.max],decreasing = TRUE)[1:cardi]
+    A[,idx.max] = rep(0,m)
+    A[1:cardi,idx.max] = kstar
+    pdas = FGD.PDAS(p = m, X = X, jt = Data.jt, 
+                    Data.St = Data.St, Theta.j = idx.max, 
+                    U.Ori = U, V.Ori = V, Theta.1st = Theta.estimate,
+                    ActiveSet = A[1:cardi, idx.max])
+    Theta.estimate[,idx.max] = pdas $ Thetaj.estimate
+    Delta.colwise[,idx.max] = pdas $ delta.colwise
+    mm = mm + 1
+  }
+  #return(Theta.estimate)
+  t2 = proc.time()
+  list(Theta.estimate = Theta.estimate,
+       Delta.colwise = Delta.colwise)
+}
+```
+
+## Simulation
+
+In this part, we implement the simulation to show the advantages of our approach. 
+
+True $\Theta^{*}$ generation: First generate $p\times q$ matrix from standard normal, take SVD $\Theta_0=Udiag(\sigma_1,\sigma_2,...)$, reserve the first $r$ sigular values and derive $\Theta_1=Udiag(\sigma_1,...,\sigma_r,0,...,0)$, then $\Theta_2=\Theta_1/sd(vec(\Theta_1))$, finally randomly choose the unsparse elements in each column of $\Theta_2$ and let others be 0, derive $\Theta^{*}$.
+
+Let items $i_t$  be drawn uniformly at $\{1,...,p\}$, assortments $S_t$ be drawn from uniform subsets of $\{1,...,q\}$, then derive $j_t$.
+
+In CSFGD we choose $\tilde{r}=2r,\lambda=\frac{1}{8}\sqrt{\frac{K(p+q)log(p+q)}{pqN}},\tau=10^{-10},\eta=0.05$.
+
+Also require:
+```{r eval=TRUE}
+loss.multilogit = function (U, V, N, it, jt, St) {
+  Theta = U %*% t(V)
+  L = 0
+  for (i in 1:N) {
+    logit = 1
+    for (j in St[i,which(St[i,]!=0)]) {
+      logit = logit + exp(Theta[it[i],jt[j]])
+    }
+    logit = logit * ((jt[i] == 0) + (jt[i] != 0) * exp(Theta[it[i],jt[i]])) ^ (-1)
+    L = L + log(logit)
+  }
+  L = L / N
+  return(L)
+}
+
+loss.data = function(X, U, V, N, it, jt, St, lambda = 0.3){
+  #Theta = U %*% t(V)
+  #nuclear = sum(svd(Theta)$d)
+  U = X %*% U
+  Theta = U %*% t(V)
+  L = 0
+  for (i in 1:N) {
+    logit = 1
+    for (j in St[i,]) {
+      logit = logit + exp(Theta[i,j])
+    }
+    
+    if (jt[i] != 0) logit = logit / exp(Theta[i,jt[i]])
+    else logit = logit
+    L = L + log(logit)
+  }
+  #L = L / N + lambda * nuclear
+  L = L / N
+  return(L)
+}
+
+X.generate = function(N, p){
+  X = matrix(rnorm(N * p, 0, 1), N, p)
+  return(X)
+}
+
+trueTheta.generate = function(p, q, r, N){
+  Theta0 = matrix(rnorm(p * q, 0, 1), p, q)
+  svd.Theta0 = svd(Theta0)
+  len.D = length(svd.Theta0$d)
+  Diag = rep(0, len.D)
+  Diag[1:r] = svd.Theta0$d[1:r]
+  D = diag(Diag)
+  U = svd.Theta0$u
+  V = svd.Theta0$v
+  Theta1 = U %*% D %*% t(V)
+  Theta.Star = Theta1 / sd(Theta1)
+  for(i in 1:q){
+    Theta.Star[sample(1:p,sample(1:floor(p/2))),i] = 0
+  }
+  return(Theta.Star)
+}
+
+ijS.generate = function(N, p, q, X, Theta, K = 50){
+  it = sample(1:p, N, replace = TRUE)
+  St = matrix(0, N, K) 
+  for(i in 1:N){
+    # set K = 10
+    S.t = sample(1:q, K)
+    St[i,1:length(S.t)] = S.t
+  }
+  pj = matrix(0, N, 1+q)
+  jt = numeric(N)
+  Theta = X %*% Theta
+  for(i in 1:N){
+    I = it[i]
+    S = St[i,]
+    sume = sum(exp(Theta[i,S]))
+    pj[i,1] = 1 / sume
+    for (j in S) {
+      pj[i,j+1] = exp(Theta[i,j]) / sume
+    }
+    jt[i] = sample(0:q, size = 1, prob = pj[i,])
+  }
+  list(it = it, jt = jt, St = St)
+  
+}
+
+RMSE = function (Theta, Theta.hat) {
+  p = nrow(Theta)
+  q = ncol(Theta)
+  return( sqrt( mean( ( Theta - Theta.hat ) ^ 2 ) ) )
+  #return( sqrt( mean( ( Theta - Theta.hat ) ^ 2 ) ) )
+}
+
+FPR = function (Theta.true, Theta.hat){
+  p = nrow(Theta.true)
+  q = ncol(Theta.true)
+  Theta.true[which(Theta.true!=0)] = 1
+  Theta.hat[which(Theta.hat!=0)] = 1
+  TN = length(which(Theta.true+Theta.hat == 0))
+  TP = length(which(Theta.true+Theta.hat == 2))
+  FN = length(which(Theta.true+Theta.hat == 1 & Theta.true == 1))
+  FP = length(which(Theta.true+Theta.hat == 1 & Theta.true == 0))
+  list(FPR = FP/(FP+TN), TPR = TP/(TP+FN), P = TP/(TP+FP), R = TP/(TP+FN), FNR = FN/(FN+TP))
+  
+}
+
+in.St = function(X, ThetaCol, StRow, itRow, St) {
+  n = nrow(St)
+  s = 1
+  for (j in StRow){
+    s = s + exp(t(X[itRow,]) %*% ThetaCol)
+  }
+  return(s)
+}
+
+g.calcu = function(X, Theta, Theta.j, it, jt, St) {
+  N = length(it)
+  m = ncol(X)
+  g = matrix(0,m,1)
+  for(i in 1:N){
+    inst = in.St(X, ThetaCol = Theta[,Theta.j], StRow = St[i,], itRow = it[i], St = St)
+    if (jt[i]!=0) {
+      g = g - exp(t(X[it[i],]) %*% (Theta[,Theta.j] + 2 * Theta[,jt[i]])) * X[i,] / (inst)^3
+    }
+    else{
+      g = g - exp(t(X[it[i],]) %*% (Theta[,Theta.j] + 2 * matrix(0, m, 1))) * X[i,] / (inst)^3
+    }
+    #inst = in.St(X, ThetaCol = Theta[,Theta.j], StRow = St[i,], itRow = it[i], St = St)
+    #g = g - exp(t(X[it[i],]) %*% (Theta[,Theta.j] + 2 * Theta[,jt[i]])) * X[i,] / (inst)^3
+  }
+  return(g / N)
+}
+
+h.calcu = function(X, Theta, Theta.j, it, jt, St) {
+  N = length(it)
+  m = ncol(X)
+  h = matrix(0,m,1)
+  for(i in 1:N){
+    inst = in.St(X, ThetaCol = Theta[,Theta.j], StRow = St[i,], itRow = it[i], St = St)
+    if (jt[i]!=0){
+      expst = exp(t(X[it[i],]) %*% (Theta[,Theta.j] + 2 * Theta[,jt[i]]))
+    }
+    else expst = exp(t(X[it[i],]) %*% (Theta[,Theta.j] + 2 * matrix(0, m, 1)))
+    #expst = exp(t(X[it[i],]) %*% (Theta[,Theta.j] + 2 * Theta[,jt[i]]))
+    h = h + (-expst * X[it[i],] + 3 * expst * inst^2 * exp( t(X[it[i],]) %*% Theta[,Theta.j] ) * X[i,]) / (inst)^6
+  }
+  return(h)
+}
+
+delta.calcu = function(g, h, Theta, Theta.j) {
+  gamma.j = - g / h
+  delta.j = .5 * h * (Theta[,Theta.j] + gamma.j) ^ 2
+  return(delta.j)
+}
+```
+
+
+_Simu 1 (N>p):  $r=2,p=100,q=100,N=200$_
+
+```{r warning=FALSE}
+set.seed(1126)
+options(warn = -1)
+r1 = 2
+# q1 > K=10
+q1 = 100
+p1 = 100
+N1 = 200
+U1 = matrix(rnorm(p1*2*r1,0,1),p1,2*r1)
+V1 = matrix(rnorm(q1*2*r1,0,1),q1,2*r1)
+X1 = X.generate(N1, p1)
+Theta1 = trueTheta.generate(p1, q1, r1, N1)
+ijS1 = ijS.generate(N1, p1, q1, X1, Theta1, K = 50)
+
+# OFGD
+t1 = proc.time()
+Theta.hat1 = FGD.Ordinary(X = X1,Data.it = ijS1$it,
+                          Data.jt = ijS1$jt,Data.St = ijS1$St, 
+                          r = 2*r1,tau=1e-5,U = U1,V = V1) $ Ma
+t2 = proc.time()
+t2 - t1
+RMSE(Theta1, Theta.hat1)
+
+# CSFGD
+t1 = proc.time()
+BeSS1 = FGD.modBeSS(X = X1, Data.it = ijS1$it, 
+                    Data.jt = ijS1$jt,Data.St = ijS1$St, 
+                    r = 2*r1, U = U1, V = V1, Actint.m =10)$Theta.estimate 
+t2 = proc.time()
+t2 - t1
+RMSE(Theta1, BeSS1)
+
+```
+
+	
+_Simu 2 (N<p):  $r=2,p=300,q=100,T=200$_
+
+```{r  warning=FALSE}
+set.seed(1127)
+options(warn = -1)
+r1 = 2
+# q1 > K=10
+q1 = 100
+p1 = 300
+N1 = 200
+U1 = matrix(rnorm(p1*2*r1,0,1),p1,2*r1)
+V1 = matrix(rnorm(q1*2*r1,0,1),q1,2*r1)
+X1 = X.generate(N1, p1)
+Theta1 = trueTheta.generate(p1, q1, r1, N1)
+ijS1 = ijS.generate(N1, p1, q1, X1, Theta1, K = 50)
+
+# OFGD
+t1 = proc.time()
+Theta.hat1 = FGD.Ordinary(X = X1,Data.it = ijS1$it,
+                          Data.jt = ijS1$jt,Data.St = ijS1$St, 
+                          r = 2*r1,tau=1e-5,U = U1,V = V1) $ Ma
+t2 = proc.time()
+t2 - t1
+RMSE(Theta1, Theta.hat1)
+
+# CSFGD
+t1 = proc.time()
+BeSS1 = FGD.modBeSS(X = X1, Data.it = ijS1$it, 
+                    Data.jt = ijS1$jt,Data.St = ijS1$St, 
+                    r = 2*r1, U = U1, V = V1, Actint.m =10)$Theta.estimate 
+t2 = proc.time()
+t2 - t1
+RMSE(Theta1, BeSS1)
+```
